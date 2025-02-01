@@ -588,17 +588,20 @@ class UNet2DConditionModel(nn.Module):
     def __init__(self):
         super(UNet2DConditionModel, self).__init__()
 
+        latent_channels = 4
+
         # This is needed to imitate huggingface config behavior
         # has nothing to do with the model itself
         # remove this if you don't use diffuser's pipeline
         self.config = namedtuple(
             "config", "in_channels addition_time_embed_dim sample_size"
         )
-        self.config.in_channels = 4
+        self.config.in_channels = latent_channels
         self.config.addition_time_embed_dim = 256
         self.config.sample_size = 128
 
-        self.conv_in = nn.Conv2d(4, 320, kernel_size=3, stride=1, padding=1)
+        self.conv_in = nn.Conv2d(latent_channels, 320, kernel_size=3, stride=1, padding=1)
+        self.config.time_cond_proj_dim = None # https://github.com/cloneofsimo/minSDXL/issues/2
         self.time_proj = Timesteps()
         self.time_embedding = TimestepEmbedding(in_features=320, out_features=1280)
         self.add_time_proj = Timesteps(256)
@@ -635,7 +638,7 @@ class UNet2DConditionModel(nn.Module):
         self.mid_block = UNetMidBlock2DCrossAttn(1280)
         self.conv_norm_out = nn.GroupNorm(32, 320, eps=1e-05, affine=True)
         self.conv_act = nn.SiLU()
-        self.conv_out = nn.Conv2d(320, 4, kernel_size=3, stride=1, padding=1)
+        self.conv_out = nn.Conv2d(320, latent_channels, kernel_size=3, stride=1, padding=1)
 
     def forward(
         self, sample, timesteps, encoder_hidden_states, added_cond_kwargs, **kwargs
