@@ -15,6 +15,22 @@ from collections import namedtuple
 
 
 class Timesteps(nn.Module):
+    """
+    Генератор временных эмбеддингов для диффузионных моделей.
+    Преобразует временные метки в синусоидальные эмбеддинги.
+    
+    Параметры:
+        num_channels (int): Размерность выходных эмбеддингов (по умолч. 320)
+    
+    Форма входов/выходов:
+        Input: [batch_size]
+        Output: [batch_size, num_channels]
+        
+    Пример:
+        >>> timesteps = torch.tensor([1, 2, 3])
+        >>> layer = Timesteps(320)
+        >>> emb = layer(timesteps)  # [3, 320]
+    """
     def __init__(self, num_channels: int = 320):
         super().__init__()
         self.num_channels = num_channels
@@ -37,6 +53,22 @@ class Timesteps(nn.Module):
 
 
 class TimestepEmbedding(nn.Module):
+    """
+    Многослойный перцептрон для обработки временных эмбеддингов.
+    
+    Параметры:
+        in_features (int): Размер входных признаков
+        out_features (int): Размер выходных признаков
+    
+    Форма входов/выходов:
+        Input: [batch_size, in_features]
+        Output: [batch_size, out_features]
+        
+    Пример:
+        >>> temb = torch.randn(2, 320)
+        >>> layer = TimestepEmbedding(320, 1280)
+        >>> out = layer(temb)  # [2, 1280]
+    """
     def __init__(self, in_features, out_features):
         super(TimestepEmbedding, self).__init__()
         self.linear_1 = nn.Linear(in_features, out_features, bias=True)
@@ -52,6 +84,24 @@ class TimestepEmbedding(nn.Module):
 
 
 class ResnetBlock2D(nn.Module):
+    """
+    Остаточный блок с временными эмбеддингами для U-Net.
+    
+    Параметры:
+        in_channels (int): Число входных каналов
+        out_channels (int): Число выходных каналов
+        conv_shortcut (bool): Использовать ли свертку для согласования каналов
+    
+    Форма входов/выходов:
+        Input: [batch, in_channels, H, W], temb [batch, 1280]
+        Output: [batch, out_channels, H, W]
+        
+    Пример:
+        >>> x = torch.randn(2, 64, 32, 32)
+        >>> temb = torch.randn(2, 1280)
+        >>> block = ResnetBlock2D(64, 128)
+        >>> out = block(x, temb)  # [2, 128, 32, 32]
+    """
     def __init__(self, in_channels, out_channels, conv_shortcut=True):
         super(ResnetBlock2D, self).__init__()
         self.norm1 = nn.GroupNorm(32, in_channels, eps=1e-05, affine=True)
@@ -96,6 +146,26 @@ class ResnetBlock2D(nn.Module):
 
 
 class Attention(nn.Module):
+    """
+    Механизм внимания с поддержкой кросс-модального внимания.
+    
+    Параметры:
+        inner_dim (int): Размерность внутренних представлений
+        cross_attention_dim (int): Размерность ключей/значений (если None = inner_dim)
+        num_heads (int): Количество голов внимания
+        dropout (float): Вероятность дропаута
+    
+    Форма входов/выходов:
+        Input: hidden_states [batch, seq_len, inner_dim], 
+               encoder_hidden_states [batch, seq_len, cross_attention_dim]
+        Output: [batch, seq_len, inner_dim]
+        
+    Пример:
+        >>> x = torch.randn(2, 10, 512)
+        >>> context = torch.randn(2, 5, 768)
+        >>> attn = Attention(512, 768, num_heads=8)
+        >>> out = attn(x, context)  # [2, 10, 512]
+    """
     def __init__(
         self, inner_dim, cross_attention_dim=None, num_heads=None, dropout=0.0
     ):
@@ -148,6 +218,22 @@ class Attention(nn.Module):
 
 
 class GEGLU(nn.Module):
+    """
+    GLU с активацией GELU. Используется в FFN трансформеров.
+    
+    Параметры:
+        in_features (int): Входная размерность
+        out_features (int): Выходная размерность
+    
+    Форма входов/выходов:
+        Input: [..., in_features]
+        Output: [..., out_features]
+        
+    Пример:
+        >>> x = torch.randn(2, 10, 512)
+        >>> geglu = GEGLU(512, 1024)
+        >>> out = geglu(x)  # [2, 10, 1024]
+    """
     def __init__(self, in_features, out_features):
         super(GEGLU, self).__init__()
         self.proj = nn.Linear(in_features, out_features * 2, bias=True)
@@ -159,6 +245,23 @@ class GEGLU(nn.Module):
 
 
 class FeedForward(nn.Module):
+    """
+    Feed Forward Network для трансформерных блоков.
+    Состоит из GEGLU и линейного слоя.
+    
+    Параметры:
+        in_features (int): Входная размерность
+        out_features (int): Выходная размерность
+    
+    Форма входов/выходов:
+        Input: [..., in_features]
+        Output: [..., out_features]
+        
+    Пример:
+        >>> x = torch.randn(2, 10, 512)
+        >>> ffn = FeedForward(512, 512)
+        >>> out = ffn(x)  # [2, 10, 512]
+    """
     def __init__(self, in_features, out_features):
         super(FeedForward, self).__init__()
 
@@ -177,6 +280,23 @@ class FeedForward(nn.Module):
 
 
 class BasicTransformerBlock(nn.Module):
+    """
+    Базовый трансформерный блок с самовниманием и кросс-вниманием.
+    
+    Параметры:
+        hidden_size (int): Размерность скрытых состояний
+    
+    Форма входов/выходов:
+        Input: x [batch, seq_len, hidden_size], 
+               encoder_hidden_states [batch, seq_len, context_dim]
+        Output: [batch, seq_len, hidden_size]
+        
+    Пример:
+        >>> x = torch.randn(2, 10, 512)
+        >>> context = torch.randn(2, 5, 768)
+        >>> block = BasicTransformerBlock(512)
+        >>> out = block(x, context)  # [2, 10, 512]
+    """
     def __init__(self, hidden_size):
         super(BasicTransformerBlock, self).__init__()
         self.norm1 = nn.LayerNorm(hidden_size, eps=1e-05, elementwise_affine=True)
@@ -211,6 +331,25 @@ class BasicTransformerBlock(nn.Module):
 
 
 class Transformer2DModel(nn.Module):
+    """
+    2D версия трансформера для обработки пространственных признаков.
+    Адаптирует стандартный трансформер для работы с 2D данными.
+    
+    Параметры:
+        in_channels (int): Входные каналы
+        out_channels (int): Выходные каналы
+        n_layers (int): Количество трансформерных блоков
+    
+    Форма входов/выходов:
+        Input: [batch, in_channels, H, W]
+        Output: [batch, out_channels, H, W]
+        
+    Пример:
+        >>> x = torch.randn(2, 64, 32, 32)
+        >>> context = torch.randn(2, 10, 768)
+        >>> model = Transformer2DModel(64, 64, n_layers=4)
+        >>> out = model(x, context)  # [2, 64, 32, 32]
+    """
     def __init__(self, in_channels, out_channels, n_layers):
         super(Transformer2DModel, self).__init__()
         self.norm = nn.GroupNorm(32, in_channels, eps=1e-06, affine=True)
@@ -244,6 +383,22 @@ class Transformer2DModel(nn.Module):
 
 
 class Downsample2D(nn.Module):
+    """
+    Слой даунсэмплинга через свертку с stride=2.
+    
+    Параметры:
+        in_channels (int): Входные каналы
+        out_channels (int): Выходные каналы
+    
+    Форма входов/выходов:
+        Input: [batch, in_channels, H, W]
+        Output: [batch, out_channels, H//2, W//2]
+        
+    Пример:
+        >>> x = torch.randn(2, 64, 32, 32)
+        >>> down = Downsample2D(64, 128)
+        >>> out = down(x)  # [2, 128, 16, 16]
+    """
     def __init__(self, in_channels, out_channels):
         super(Downsample2D, self).__init__()
         self.conv = nn.Conv2d(
@@ -255,6 +410,22 @@ class Downsample2D(nn.Module):
 
 
 class Upsample2D(nn.Module):
+    """
+    Слой апсэмплинга через интерполяцию и свертку.
+    
+    Параметры:
+        in_channels (int): Входные каналы
+        out_channels (int): Выходные каналы
+    
+    Форма входов/выходов:
+        Input: [batch, in_channels, H, W]
+        Output: [batch, out_channels, H*2, W*2]
+        
+    Пример:
+        >>> x = torch.randn(2, 64, 16, 16)
+        >>> up = Upsample2D(64, 32)
+        >>> out = up(x)  # [2, 32, 32, 32]
+    """
     def __init__(self, in_channels, out_channels):
         super(Upsample2D, self).__init__()
         self.conv = nn.Conv2d(
